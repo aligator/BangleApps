@@ -1,11 +1,13 @@
+let settings = Object.assign({ 
+  speed: 6, // when speed (mp/h) is lower than this use direction from compass (if 0, disable)
+}, require("Storage").readJSON("combinav.json", true) || {});
+
 const Yoff = 40;
 let pal2color = new Uint16Array([0x0000,0xffff,0x07ff,0xC618],0,2);
 let buf = Graphics.createArrayBuffer(240,50,2,{msb:true});
 let candraw = true;
 let savedfix;
 let lastFix = null;
-
-const compassThreshold = 6;
 
 function flip(b,y) {
  g.drawImage({width:240,height:50,bpp:2,buffer:b.buffer, palette:pal2color},0,y);
@@ -186,35 +188,42 @@ function stopdraw() {
   candraw=false;
 
   Bangle.setCompassPower(0, "combinav");
-  if(intervalRefSec) {clearInterval(intervalRefSec);}
+  if(intervalRefSec) {
+    clearInterval(intervalRefSec);
+  }
 }
 
 let cntAboveSpeed = 0;
 
 function startTimers() {
   candraw=true;
-  if(intervalRefSec) {clearInterval(intervalRefSec);}
+  if(intervalRefSec) {
+    clearInterval(intervalRefSec);
+  }
   intervalRefSec = setInterval(function() {
     const start = Date.now();
 
     let gpsHeading = newHeading(course,heading);
     let compassHeading = gpsHeading
-    
-    // Only use the compass if the speed is < compassThreshold for x events.
-    cntAboveSpeed = speed < compassThreshold ? 0 : cntAboveSpeed+1;
-    if (cntAboveSpeed < 10) { // need to stay x events above or equal threshold
-      Bangle.setCompassPower(1, "combinav");
-      let compassDirection = magnav.tiltfixread(CALIBDATA.offset,CALIBDATA.scale);
-      compassHeading = newHeading(compassDirection,heading)
-    } else {
-        // Disable the compass if it is not needed.
-        Bangle.setCompassPower(0, "combinav");
-    }
-    
-    if (speed > compassThreshold) {
-      heading = gpsHeading;
-    } else {
-      heading = compassHeading;
+    heading = gpsHeading;
+
+    if (settings.speed !== 0) {
+      // Only use the compass if the speed is < settings.speed for x events.
+      cntAboveSpeed = speed < settings.speed ? 0 : cntAboveSpeed+1;
+      if (cntAboveSpeed < 10) { // need to stay x events above or equal settings.speed
+        Bangle.setCompassPower(1, "combinav");
+        let compassDirection = magnav.tiltfixread(CALIBDATA.offset,CALIBDATA.scale);
+        compassHeading = newHeading(compassDirection,heading)
+      } else {
+          // Disable the compass if it is not needed.
+          Bangle.setCompassPower(0, "combinav");
+      }
+      
+      if (speed > settings.speed) {
+        heading = gpsHeading;
+      } else {
+        heading = compassHeading;
+      }
     }
 
     drawCompass(heading);  // we want compass to show us where to go
@@ -230,8 +239,6 @@ function drawAll(){
 }
 
 function startdraw(){
-  Bangle.setCompassPower(1, "combinav");
-
   g.clear();
   Bangle.drawWidgets();
   startTimers();
@@ -295,7 +302,6 @@ Bangle.loadWidgets();
 Bangle.drawWidgets();
 // load widgets can turn off GPS
 Bangle.setGPSPower(1);
-Bangle.setCompassPower(1, "combinav");
 drawAll();
 startTimers();
 Bangle.on('GPS', onGPS);

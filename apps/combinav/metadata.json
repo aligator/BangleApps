@@ -11,6 +11,7 @@
   "dependencies" : { "waypoints":"type", "magnav" : "app" },
   "storage": [
     {"name":"combinav.app.js","url":"app.js","supports":["BANGLEJS"]},
-    {"name":"combinav.img","url":"app-icon.js","evaluate":true}
+    {"name":"combinav.img","url":"app-icon.js","evaluate":true},
+    {"name":"combinav.settings.js", "url": "settings.js"}
   ]
 }
