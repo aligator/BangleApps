@@ -136,11 +136,20 @@ var savedfix;
 
 function onGPS(fix) {
   savedfix = fix;
-  if (fix!==undefined){
-    course = isNaN(fix.course) ? course : Math.round(fix.course);
-    speed  = isNaN(fix.speed) ? speed : fix.speed;
-    satellites = fix.satellites;
+  if (fix === undefined) {
+    // Reset values, as they are no longer available.
+    // Also the speed is used to determine if compass support should be used.
+    // With a speed of 0 the compass is used 100%.
+    course = 0;
+    speed = 0;
+    satellites = 0;
+    return
   }
+
+  course = isNaN(fix.course) ? course : Math.round(fix.course);
+  speed  = isNaN(fix.speed) ? speed : fix.speed;
+  satellites = fix.satellites;
+
   if (candraw) {
     if (fix!==undefined && fix.fix==1){
       dist = distance(fix,wp);
@@ -161,18 +170,46 @@ function stopdraw() {
   if(intervalRefSec) {clearInterval(intervalRefSec);}
 }
 
+function fade(value1, value2, percentage) {
+  return (value2 * percentage) + (value1 * (1 - percentage));
+}
+
 function startTimers() {
   candraw=true;
   if(intervalRefSec) {clearInterval(intervalRefSec);}
   intervalRefSec = setInterval(function() {
-    if (course!=heading && speed >= 1) {
-      heading = newHeading(course,heading);
-    } else if (speed < 1) {
-      var direction = magnav.tiltfixread(CALIBDATA.offset,CALIBDATA.scale);
-      heading = newHeading(direction,heading);
+    const start = Date.now();
+
+    let gpsHeading = newHeading(course,heading);
+    let compassHeading = gpsHeading
+    
+    // Only use the compass if the speed is <= 3mph.
+    if (speed <= 3) {
+      if (Bangle.getCompassPower() == 0) {
+        Bangle.setCompassPower(1, "app");
+      } 
+
+      let compassDirection = magnav.tiltfixread(CALIBDATA.offset,CALIBDATA.scale);
+      compassHeading = newHeading(compassDirection,heading)
+    } else if (Bangle.getCompassPower() == 1) {
+        // Disable the compass if it is not needed.
+        Bangle.setCompassPower(0, "app");
+    }
+    
+    if (speed > 3) {
+      heading = gpsHeading;
+    } else {
+      // Get percentage from 0 to 3 of the speed.
+      let speedPercentage = speed / 3;
+
+      // Fade the heading from the compass to the GPS heading based on the speed percentage.
+      // This way, the compass is used for slower movements and the GPS is used for faster movements.
+      heading = fade(compassHeading, gpsHeading, speedPercentage);
     }
 
     drawCompass(heading);  // we want compass to show us where to go
+
+    console.log("time: " + (Date.now() - start) + "ms");
   },200);
 }
 
