@@ -1,7 +1,11 @@
 const Yoff = 40;
-var pal2color = new Uint16Array([0x0000,0xffff,0x07ff,0xC618],0,2);
-var buf = Graphics.createArrayBuffer(240,50,2,{msb:true});
-var candraw = true;
+let pal2color = new Uint16Array([0x0000,0xffff,0x07ff,0xC618],0,2);
+let buf = Graphics.createArrayBuffer(240,50,2,{msb:true});
+let candraw = true;
+let savedfix;
+let lastFix = null;
+
+const compassThreshold = 6;
 
 function flip(b,y) {
  g.drawImage({width:240,height:50,bpp:2,buffer:b.buffer, palette:pal2color},0,y);
@@ -14,15 +18,25 @@ const labels = ["N","NE","E","SE","S","SW","W","NW"];
 var loc = require("locale");
 
 function drawCompass(course) {
-  if (!candraw) return;
+  if (!candraw) {
+    return;
+  }
+
   buf.setColor(1);
   buf.setFont("Vector",24);
   var start = course-90;
-  if (start<0) start+=360;
+  if (start<0) {
+    start+=360;
+  }
+
   buf.fillRect(28,45,212,49);
   var xpos = 30;
   var frag = 15 - start%15;
-  if (frag<15) xpos+=frag; else frag = 0;
+  if (frag<15) {
+    xpos+=frag;
+  } else {
+    frag = 0;
+  }
   for (var i=frag;i<=180-frag;i+=15){
     var res = start + i;
     if (res%90==0) {
@@ -37,13 +51,21 @@ function drawCompass(course) {
     xpos+=15;
   }
   if (wpindex>=0) {
+    // Draw waypoint indicator.
     var bpos = brg - course;
     if (bpos>180) bpos -=360;
     if (bpos<-180) bpos +=360;
     bpos+=120;
     if (bpos<30) bpos = 14;
     if (bpos>210) bpos = 226;
-    buf.setColor(2);
+
+    // Set other color if there is no reliable gps data.
+    if (lastFix === null || (new Date() - lastFix) > 5000 || satellites < 3) {
+      buf.setColor(1,0.5,0.5);
+    } else {
+      buf.setColor(2);
+    }
+    
     buf.fillCircle(bpos,40,8);
     }
   flip(buf,Yoff);
@@ -132,19 +154,16 @@ function drawN(){
   g.drawString("Sats " + satellites.toString(),10,230);
 }
 
-var savedfix;
-
 function onGPS(fix) {
   savedfix = fix;
   if (fix === undefined) {
-    // Reset values, as they are no longer available.
-    // Also the speed is used to determine if compass support should be used.
-    // With a speed of 0 the compass is used 100%.
-    course = 0;
     speed = 0;
     satellites = 0;
+    lastFix = null;
     return
   }
+
+  lastFix = new Date();
 
   course = isNaN(fix.course) ? course : Math.round(fix.course);
   speed  = isNaN(fix.speed) ? speed : fix.speed;
@@ -166,13 +185,11 @@ var intervalRefSec;
 function stopdraw() {
   candraw=false;
 
-  Bangle.setCompassPower(0, "app");
+  Bangle.setCompassPower(0, "combinav");
   if(intervalRefSec) {clearInterval(intervalRefSec);}
 }
 
-function fade(value1, value2, percentage) {
-  return (value2 * percentage) + (value1 * (1 - percentage));
-}
+let cntAboveSpeed = 0;
 
 function startTimers() {
   candraw=true;
@@ -183,33 +200,24 @@ function startTimers() {
     let gpsHeading = newHeading(course,heading);
     let compassHeading = gpsHeading
     
-    // Only use the compass if the speed is <= 3mph.
-    if (speed <= 3) {
-      if (Bangle.getCompassPower() == 0) {
-        Bangle.setCompassPower(1, "app");
-      } 
-
+    // Only use the compass if the speed is < compassThreshold for x events.
+    cntAboveSpeed = speed < compassThreshold ? 0 : cntAboveSpeed+1;
+    if (cntAboveSpeed < 10) { // need to stay x events above or equal threshold
+      Bangle.setCompassPower(1, "combinav");
       let compassDirection = magnav.tiltfixread(CALIBDATA.offset,CALIBDATA.scale);
       compassHeading = newHeading(compassDirection,heading)
-    } else if (Bangle.getCompassPower() == 1) {
+    } else {
         // Disable the compass if it is not needed.
-        Bangle.setCompassPower(0, "app");
+        Bangle.setCompassPower(0, "combinav");
     }
     
-    if (speed > 3) {
+    if (speed > compassThreshold) {
       heading = gpsHeading;
     } else {
-      // Get percentage from 0 to 3 of the speed.
-      let speedPercentage = speed / 3;
-
-      // Fade the heading from the compass to the GPS heading based on the speed percentage.
-      // This way, the compass is used for slower movements and the GPS is used for faster movements.
-      heading = fade(compassHeading, gpsHeading, speedPercentage);
+      heading = compassHeading;
     }
 
     drawCompass(heading);  // we want compass to show us where to go
-
-    console.log("time: " + (Date.now() - start) + "ms");
   },200);
 }
 
@@ -222,7 +230,7 @@ function drawAll(){
 }
 
 function startdraw(){
-  Bangle.setCompassPower(1, "app");
+  Bangle.setCompassPower(1, "combinav");
 
   g.clear();
   Bangle.drawWidgets();
@@ -287,7 +295,7 @@ Bangle.loadWidgets();
 Bangle.drawWidgets();
 // load widgets can turn off GPS
 Bangle.setGPSPower(1);
-Bangle.setCompassPower(1, "app");
+Bangle.setCompassPower(1, "combinav");
 drawAll();
 startTimers();
 Bangle.on('GPS', onGPS);
